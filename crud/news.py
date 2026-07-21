@@ -4,7 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
 from models.news import News
-from schemas.news import NewsCreate, NewsUpdate
+from schemas.news import NewsCreate, NewsUpdate, RelatedNewsItem
+from cache.news_cache import get_cached_related_news, cache_related_news
 
 
 # 创建新闻
@@ -68,9 +69,10 @@ async def get_related_news(
     db: AsyncSession,
     category_id: int,
     exclude_id: int,
-) -> list[News]:
+) -> list[dict]:
     """
     根据分类 ID 随机推荐 3~5 条新闻，排除当前新闻。
+    支持 Redis 缓存（5 分钟有效期）。
 
     Args:
         db: 异步数据库会话。
@@ -78,8 +80,14 @@ async def get_related_news(
         exclude_id: 需要排除的新闻 ID（当前新闻自身）。
 
     Returns:
-        list[News]: 随机推荐新闻列表（3~5 条）。
+        list[dict]: 随机推荐新闻列表（已序列化）。
     """
+    # 1. 尝试从缓存读取
+    cached = await get_cached_related_news(category_id, exclude_id)
+    if cached is not None:
+        return cached
+
+    # 2. 缓存未命中，查询数据库
     query = (
         select(News)
         .where(News.category_id == category_id, News.id != exclude_id)
@@ -91,7 +99,17 @@ async def get_related_news(
         return []
 
     count = random.randint(3, min(5, len(candidates)))
-    return random.sample(candidates, count)
+    selected = random.sample(candidates, count)
+
+    # 3. 序列化为字典列表
+    related_list = [
+        RelatedNewsItem.model_validate(n).model_dump() for n in selected
+    ]
+
+    # 4. 写入缓存（5 分钟）
+    await cache_related_news(category_id, exclude_id, related_list, expire=300)
+
+    return related_list
 
 
 # 分页查询新闻列表

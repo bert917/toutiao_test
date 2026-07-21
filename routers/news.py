@@ -6,7 +6,7 @@ from config.db_conf import get_db
 from crud.news_category import get_categories as fetch_categories
 from crud.news import get_news_list, get_news_count, get_news, increment_views, get_related_news
 from schemas.news_category import NewsCategoryResponse
-from schemas.news import NewsResponse, RelatedNewsItem
+from schemas.news import NewsResponse
 from schemas.common import ResponseModel
 
 router = APIRouter(prefix="/api/news", tags=["news"])
@@ -51,7 +51,5 @@ async def news_detail(
         return ResponseModel(code=404, message="新闻不存在", data=None)
     related = await get_related_news(db, category_id=news.category_id, exclude_id=news.id)
     data = NewsResponse.model_validate(news).model_dump()
-    data["relatedNews"] = [
-        RelatedNewsItem.model_validate(n).model_dump() for n in related
-    ]
+    data["relatedNews"] = related
     return ResponseModel(code=200, message="success", data=data)
